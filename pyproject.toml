@@ -1,0 +1,15 @@
+[project]
+name = "lab3-penguins-classification"
+version = "0.1.0"
+dependencies = [
+    "fastapi==0.115.0",
+    "uvicorn==0.30.6",
+    "xgboost==2.1.1",
+    "pandas==2.2.2",
+    "scikit-learn==1.5.1",
+    "seaborn==0.13.2",
+    "pydantic==2.9.2"
+]
+
+[tool.uv]
+python = "3.10"
