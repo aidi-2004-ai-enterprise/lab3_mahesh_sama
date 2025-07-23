@@ -5,6 +5,7 @@
 # Penguins Classification API
 # Video link for Demo
 https://github.com/aidi-2004-ai-enterprise/lab3_mahesh_sama/blob/main/lab3.mp4
+![Demo GIF](lab3-gif.gif)
 ## Project Description
 This project implements a FastAPI application to predict penguin species (Adelie, Gentoo, or Chinstrap) using an XGBoost model trained on the Seaborn penguins dataset. The API accepts input features (`bill_length_mm`, `bill_depth_mm`, `flipper_length_mm`, `body_mass_g`, `sex`, `island`) and returns the predicted species. The application includes:
 
