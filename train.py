@@ -1,107 +1,48 @@
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, ValidationError
-from enum import Enum
 import pandas as pd
-import joblib
-import logging
-from typing import Dict
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import LabelEncoder
+from sklearn.metrics import f1_score
+import xgboost as xgb
 import os
+import seaborn as sns
+import joblib
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler()]
+# Load dataset
+df = sns.load_dataset("penguins").dropna()
+
+# Clean formatting
+df["sex"] = df["sex"].str.lower()
+df["island"] = df["island"].str.capitalize()
+
+# Drop 'year' if it exists
+df = df.drop(columns=["year"], errors="ignore")
+
+# Encode target
+le = LabelEncoder()
+df["species"] = le.fit_transform(df["species"])
+
+# One-hot encode features
+df = pd.get_dummies(df, columns=["sex", "island"])
+
+X = df.drop("species", axis=1)
+y = df["species"]
+
+# Stratified split
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.2, stratify=y, random_state=42
 )
-logger = logging.getLogger(__name__)
 
-app = FastAPI()
+# Train model
+model = xgb.XGBClassifier(n_estimators=100, max_depth=3, use_label_encoder=False, eval_metric="mlogloss")
+model.fit(X_train, y_train)
 
-class Island(str, Enum):
-    Torgersen = "Torgersen"
-    Biscoe = "Biscoe"
-    Dream = "Dream"
+print("Train F1 Score is:", f1_score(y_train, model.predict(X_train), average='weighted'))
+print("Test F1 Score is:", f1_score(y_test, model.predict(X_test), average='weighted'))
 
-class Sex(str, Enum):
-    Male = "male"
-    Female = "female"
+# Save model + encoder + columns
+os.makedirs("app/data", exist_ok=True)
+model.save_model("app/data/model.json")
+joblib.dump(le, "app/data/label_encoder.pkl")
+joblib.dump(X.columns.tolist(), "app/data/columns.pkl")
 
-class PenguinFeatures(BaseModel):
-    bill_length_mm: float
-    bill_depth_mm: float
-    flipper_length_mm: float
-    body_mass_g: float
-    sex: Sex
-    island: Island
-
-def load_model(path: str) -> Dict:
-    """Load the trained model and label encoder."""
-    if not os.path.exists(path):
-        logger.error(f"Model file not found at {path}")
-        raise FileNotFoundError(f"Model file not found at {path}")
-    logger.info(f"Loading model from {path}")
-    return joblib.load(path)
-
-# Load model and label encoder at startup
-model_data = load_model("app/data/model.json")
-model = model_data["model"]
-label_encoder = model_data["label_encoder"]
-
-def preprocess_input(data: PenguinFeatures) -> pd.DataFrame:
-    """Preprocess input data with consistent one-hot encoding."""
-    # Convert input to DataFrame
-    input_dict = data.dict()
-    df = pd.DataFrame([input_dict])
-    
-    # One-hot encode categorical features with explicit prefixes
-    df = pd.get_dummies(df, columns=["sex", "island"], prefix={"sex": "sex", "island": "island"}, dtype=int)
-    
-    # Ensure all expected columns are present in the correct order
-    expected_columns = [
-        "bill_length_mm", "bill_depth_mm", "flipper_length_mm", "body_mass_g",
-        "sex_female", "sex_male", "island_biscoe", "island_dream", "island_torgersen"
-    ]
-    for col in expected_columns:
-        if col not in df.columns:
-            df[col] = 0
-    
-    # Reorder columns to match training
-    df = df[expected_columns]
-    return df
-
-@app.post("/predict")
-async def predict(data: PenguinFeatures) -> Dict:
-    """Predict penguin species from input features."""
-    try:
-        logger.info("Received prediction request")
-        
-        # Validate numeric inputs to prevent unrealistic values
-        if any(val <= 0 for val in [
-            data.bill_length_mm, data.bill_depth_mm, data.flipper_length_mm, data.body_mass_g
-        ]):
-            logger.debug("Invalid input: Numeric features must be positive")
-            raise ValueError("Numeric features must be positive")
-        
-        # Preprocess input
-        X = preprocess_input(data)
-        
-        # Make prediction
-        prediction = model.predict(X)[0]
-        species = label_encoder.inverse_transform([prediction])[0]
-        
-        logger.info(f"Prediction successful: {species}")
-        return {"species": species}
-    
-    except ValidationError as e:
-        # Return HTTP 400 for Pydantic validation errors
-        error_msg = f"Invalid input: {str(e)}"
-        logger.debug(error_msg)
-        raise HTTPException(status_code=400, detail=error_msg)
-    except Exception as e:
-        logger.debug(f"Invalid input: {str(e)}")
-        raise HTTPException(status_code=400, detail=f"Invalid input: {str(e)}")
-
-@app.get("/")
-async def root() -> Dict:
-    """Root endpoint for health check."""
-    return {"message": "Penguins Classification API"}
+print("Model, label encoder, and columns saved to app/data/")
